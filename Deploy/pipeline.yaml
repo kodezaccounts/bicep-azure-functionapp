@@ -1,0 +1,69 @@
+name: $(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  batch: true
+  branches:
+    include:
+    - master
+    - feature/*
+
+  paths:
+    exclude:
+      - doc
+      - ReadME.md
+
+pr:
+  branches:
+    include:
+      - master
+
+variables:
+  - name: vmImage
+    value: "windows-latest"
+
+stages:
+  - stage: Build
+    jobs:
+      - job: "Build"
+        pool:
+          vmImage: ${{variables.vmImage}}
+        steps:
+          - template: "build.yaml"
+            parameters:
+              projectFiles: "**/*.csproj"
+
+  - stage: DEV
+    dependsOn: ["Build"]
+    jobs:
+      - deployment: DEV
+        variables:
+          - template: "Variables/common.yaml"
+          - template: "Variables/dev.yaml"
+        pool:
+          vmImage: ${{variables.vmImage}}
+        environment: DEV
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: "deploy.yaml"
+                  parameters:
+                    buildNumber: $(Build.BuildNumber)
+
+  - stage: SIT
+    dependsOn: ["DEV"]
+    jobs:
+      - deployment: SIT
+        variables:
+          - template: "Variables/common.yaml"
+          - template: "Variables/sit.yaml"
+        pool:
+          vmImage: ${{variables.vmImage}}
+        environment: SIT
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: "deploy.yaml"
+                  parameters:
+                    buildNumber: $(Build.BuildNumber)

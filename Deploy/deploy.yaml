@@ -1,0 +1,94 @@
+parameters:
+  - name: buildNumber
+    type: string
+
+steps:
+
+  - task: AzureCLI@2    
+    displayName: "Create resource group"
+    inputs:
+      azureSubscription: "$(azureResourceManagerConnection)"
+      scriptType: "pscore"
+      scriptLocation: "inlineScript"
+      inlineScript: |
+        $ifExists = az group exists -n "$(rgName)"
+        if ($ifExists -eq 'false') {
+          echo 'creating the resource group'
+          az group create -n "$(rgName)" -l "$(rgLocation)"
+        }       
+
+
+  - task: AzureCLI@2    
+    displayName: "Provision resources"
+    inputs:
+      azureSubscription: "$(azureResourceManagerConnection)"
+      scriptType: "pscore"
+      scriptLocation: "inlineScript"
+      inlineScript: |    
+        az deployment group create `
+        --name bicepdemo `
+        --resource-group "$(rgName)" `
+        --template-file "$(Pipeline.Workspace)/deploy/main.bicep" `
+        --parameters "sgName=$(sgName)" `
+        "buildNumber=$(Build.BuildNumber)" `
+        "appInsName=ins-$(funcAppName)" `
+        "sku=$(sgType)" `
+        "planName=$(planName)" `
+        "planSku=$(planSku)" `
+        "planTier=$(planTier)" `
+        "keyVaultName=$(keyVaultName)" `
+        "funcAppName=$(funcAppName)"
+
+  - task: AzureAppServiceManage@0
+    displayName: "Stop Azure App Service (Staging)"
+    inputs:
+      azureSubscription: "$(azureResourceManagerConnection)"
+      action: "Stop Azure App Service"
+      WebAppName: "$(funcAppName)"
+      resourceGroupName: "$(rgName)"
+      Slot: "Staging"
+      SpecifySlotOrASE: true
+
+  - task: AzureRmWebAppDeployment@4
+    displayName: "Deploy Azure Function App (Staging)"
+    inputs:
+      azureSubscription: "$(azureResourceManagerConnection)"
+      appType: functionApp
+      WebAppName: "$(funcAppName)"
+      package: "$(Pipeline.Workspace)/drop/$(Build.BuildId).zip"
+      enableCustomDeployment: true
+      DeploymentType: zipDeploy
+      JSONFiles: "**/host.json"
+      resourceGroupName: "$(rgName)"
+      deployToSlotOrASE: true
+      SlotName: "Staging"
+
+  - task: AzureAppServiceManage@0
+    displayName: "Start Azure App Service (Staging)"
+    inputs:
+      azureSubscription: "$(azureResourceManagerConnection)"
+      action: "Start Azure App Service"
+      WebAppName: "$(funcAppName)"
+      resourceGroupName: "$(rgName)"
+      Slot: "Staging"
+      SpecifySlotOrASE: true
+
+  - task: AzureAppServiceManage@0
+    displayName: "Swap slots (Staging to Production)"
+    inputs:
+      azureSubscription: "$(azureResourceManagerConnection)"
+      action: "Swap Slots"
+      WebAppName: "$(funcAppName)"
+      resourceGroupName: "$(rgName)"
+      SourceSlot: "staging"
+
+  - task: AzureAppServiceManage@0
+    displayName: "Stop Azure App Service (Staging)"
+    inputs:
+      azureSubscription: "$(azureResourceManagerConnection)"
+      action: "Stop Azure App Service"
+      WebAppName: "$(funcAppName)"
+      resourceGroupName: "$(rgName)"
+      Slot: "Staging"
+      SpecifySlotOrASE: true        
+
